@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
 /*
  * @param result: a field to populate with the result of your RSA calculation.
  * @param message: the message to perform RSA on. (probably a cert in this case)
- * @param e: the encryption key from the key_file passed in through the command-line arguments
+ * @param d: the encryption key from the key_file passed in through the command-line arguments
  * @param n: the modulus for RSA from the modulus_file passed in through the command-line arguments
  *
  * Fill in the method using the repeated squares method of calculating RSA. Store the result in the provided result argument.
@@ -119,7 +119,23 @@ int main(int argc, char **argv) {
 static void
 perform_rsa(mpz_t result, mpz_t message, mpz_t d, mpz_t n)
 {
-    /* YOUR CODE HERE */
+    mpz_t two; mpz_t one; mpz_t zero; mpz_t comp;
+    mpz_init(zero); mpz_init(one); mpz_init(two); mpz_init(comp);
+    mpz_set_str(two, "2", 10); mpz_set_str(one, "1", 10);
+    mpz_add(result, result, one);
+    
+    while (mpz_cmp(zero, d) < 0) {
+        mpz_mod(comp, d, two);
+        if (mpz_cmp(comp, zero) > 0) {
+            mpz_mul(result, result, message);
+            mpz_mod(result, result, n);
+            mpz_sub(d, d, one);
+        }
+        mpz_mul(message, message, message);
+        mpz_mod(message, message, n);
+        mpz_div(d, d, two);
+    }
+    mpz_clear(two); mpz_clear(one); mpz_clear(zero); mpz_clear(comp);
 }
 
 static void
