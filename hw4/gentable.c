@@ -118,17 +118,6 @@ void copy(
 		target[i] = original[i];
 }
 
-unsigned long long char128_to_long (
-	char *target, 
-	int bits
-	)
-{
-	unsigned long long res = 0;
-	for (; bits > 0; bits -= 8) {
-		res |= (target[16-(bits/8)] << (bits - 8));
-	}
-	return res;
-}
 
 int main (int argc, const char * argv[])
 {

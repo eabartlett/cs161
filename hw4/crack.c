@@ -23,17 +23,21 @@ print_answer (
 	)
 {
 	int left = (bits / 8) + ((bits % 8) > 0);
-	printf("left: %d\n", left);
 	printf("Password is 0x");
 	for (int i = 16-left; i < 16; i++)
 		printf("%02x", pass[i]&0xff);
 	printf(". AES was evaluated %d times.\n", calls);
 }
 
+void nullify (char *target, length)
+{
+	for (int i = 0; i < length; i++)
+		target[i] = 0x00;
+}
+
 /*
  *  assign -- transform long long (64 bit unsigned integer) val to 16 byte array pass
  */
-
 void assign (
 	unsigned char *pass, 
 	unsigned long long val
@@ -46,6 +50,26 @@ void assign (
 	}
 	for (i =7; i >= 0; i--)
 		pass[i] = 0;
+}
+
+/*
+ * Sets at 16 element char array given a 32 element string
+ */
+void set (
+	unsigned char str[32],
+	unsigned char out[16]
+	)
+{
+	char *temp = malloc(2);
+	temp[1] = 0x00;
+	nullify(out, 16);
+	for (int i = 0; i < 32; i+=2) {
+		temp[0] = str[i];
+		out[i/2] = strtoul(temp,NULL,16)<<4;
+		temp[0] = str[i+1];
+		out[i/2] |= strtoul(temp,NULL,16);
+	}
+	free(temp);
 }
 
 /**
@@ -74,12 +98,6 @@ void reduce (
 			target[i] = original[i];
 		}
 	}
-}
-
-void nullify (char *target, length)
-{
-	for (int i = 0; i < length; i++)
-		target[i] = 0x00;
 }
 
 /**
@@ -169,7 +187,7 @@ int main (int argc, const char * argv[])
   int s, n, leftover, start, read_pass, read_chain, pwd_size;
 	long long  out_size;
   aes_context     ctx;
-  unsigned char ciphertext[16], password[16], plaintext[16], hash_pass[16], front[16], back[16];
+  unsigned char ciphertext[16], password[16], plaintext[16], hash_pass[16];
 	
   if (argc < 4) {
 		// Make sure valid arguments are given
@@ -178,22 +196,7 @@ int main (int argc, const char * argv[])
   }
 	nullify(password, 16); nullify(plaintext, 16); nullify(hash_pass, 16);
 	n = atoi(argv[1]); s = atoi(argv[2]);
-	hash_pass[0] = 0x97;
-	hash_pass[1] = 0x0f;
-	hash_pass[2] = 0xc1;
-	hash_pass[3] = 0x6e;
-	hash_pass[4] = 0x71;
-	hash_pass[5] = 0xb7;
-	hash_pass[6] = 0x54;
-	hash_pass[7] = 0x63;
-	hash_pass[8] = 0xab;
-	hash_pass[9] = 0xaf;
-	hash_pass[10] = 0xb3;
-	hash_pass[11] = 0xf8;
-	hash_pass[12] = 0xbe;
-	hash_pass[13] = 0x93;
-	hash_pass[14] = 0x9d;
-	hash_pass[15] = 0x1c;
+	set(&argv[3][2], hash_pass);
 	// > 0 if bits are past byte boundry - == 0 if exactly on byte boundry
 	leftover = n % 8; 
 	
@@ -204,11 +207,10 @@ int main (int argc, const char * argv[])
 	pwd_size = (16 - start) * 2; 
 
 	// Number of entries we can fit in rainbow (2^s * 3 * 16/2)
-	out_size = (2 << (s-1)) * 3 * 16; 
+	out_size = (1 << s) * 3 * 16; 
 	out_size /= pwd_size;
 	
 	unsigned char r_table[out_size][2][16];
-
 	fp = fopen("rainbow", "r+");
 	// Read rainbow table into memory
 	for (int i = 0; i < out_size; i++) {
