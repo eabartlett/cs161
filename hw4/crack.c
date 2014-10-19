@@ -16,6 +16,20 @@ void print_chars (
 	printf("\n");
 }
 
+print_answer (
+	char pass[16],
+	int calls,
+	int bits
+	)
+{
+	int left = (bits / 8) + ((bits % 8) > 0);
+	printf("left: %d\n", left);
+	printf("Password is 0x");
+	for (int i = 16-left; i < 16; i++)
+		printf("%02x", pass[i]&0xff);
+	printf(". AES was evaluated %d times.\n", calls);
+}
+
 /*
  *  assign -- transform long long (64 bit unsigned integer) val to 16 byte array pass
  */
@@ -62,22 +76,29 @@ void reduce (
 	}
 }
 
+void nullify (char *target, length)
+{
+	for (int i = 0; i < length; i++)
+		target[i] = 0x00;
+}
+
 /**
 	* Hash plaintext using AES
 	* Put hashed plaintext into char * given as cipher text
 	*/
 int hash (
-	char plaintext[16], 
+	char password[16], 
 	char ciphertext[16], 
-	aes_context ctx, 
-	char key[16]
+	aes_context ctx 
 	)
 {
-  if (aes_setkey_enc (&ctx, key, 128)) {
+	char null_arr[16];
+	nullify(null_arr, 16);
+  if (aes_setkey_enc (&ctx, password, 128)) {
     printf("Error setting key password\n");
     return 1;
   }
-  if (aes_crypt_ecb (&ctx, AES_ENCRYPT, plaintext, ciphertext)) {
+  if (aes_crypt_ecb (&ctx, AES_ENCRYPT, null_arr, ciphertext)) {
     printf("Error encrypting password\n");
 		return 1;
   }
@@ -85,20 +106,19 @@ int hash (
 }
 
 /**
-	* Run reduce(hash(plaintext)) rounds times and end with the result in plaintext
+	* Run reduce(hash(plaintext)) rounds times and end with the result in password
 	*/
 void hash_reduce_chain (
-	char plaintext[16], 
-	char ciphertext[16], 
+	char password[16], 
 	aes_context ctx, 
-	char key[16],
 	int rounds,
 	int bits
 	)
 {
+	char temp[16];
 	for (; rounds > 0; rounds--) {
-		hash(plaintext, ciphertext, ctx, key);
-		reduce(ciphertext, plaintext, bits);
+		hash(password, temp, ctx);
+		reduce(temp, password, bits);
 	}
 }
 
@@ -112,62 +132,108 @@ void copy(
 		target[i] = original[i];
 }
 
-unsigned long long char128_to_long (
-	char *target, 
-	int bits
-	)
+int comp_chars (char c1[16], char c2[16])
 {
-	unsigned long long res = 0;
-	for (; bits > 0; bits -= 8) {
-		res |= (target[16-(bits/8)] << (bits - 8));
+	for (int i = 0; i < 16; i++) {
+		if (memcmp(c1, c2, 16) != 0) {
+			return 0;
+		}
 	}
-	return res;
+	return 1;
 }
 
-void nullify (char *target, length)
+int match (
+	char r_table[][2][16], 
+	char password[],
+	aes_context ctx,
+	long long length,
+	int *aes_calls,
+	int n
+	)
 {
-	for (int i = 0; i < length; i++)
-		target[i] = 0x00;
+	int hash_match = -1;
+	while (hash_match < 0) {
+		for (int i = 0; i < length; i++) {
+			if (comp_chars(r_table[i][1], password))
+				hash_match =  i;
+		}
+		hash_reduce_chain(password, ctx, 1, n);
+		(*aes_calls)++;
+	}
+	return hash_match;
 }
 
 int main (int argc, const char * argv[])
 {
   FILE *fp;
-  int s, n, leftover, start, read_pass, read_chain;
+  int s, n, leftover, start, read_pass, read_chain, pwd_size;
+	long long  out_size;
   aes_context     ctx;
-  unsigned char password[16], ciphertext[16], key[16], plaintext[16], hash[16];
-	unsigned char chains[128][2][16];
+  unsigned char ciphertext[16], password[16], plaintext[16], hash_pass[16], front[16], back[16];
 	
   if (argc < 4) {
 		// Make sure valid arguments are given
     printf("Gentable takes 3 arguments, crack <n> <s> <hash>\n");
     return 0;
   }
+	nullify(password, 16); nullify(plaintext, 16); nullify(hash_pass, 16);
+	n = atoi(argv[1]); s = atoi(argv[2]);
+	hash_pass[0] = 0x97;
+	hash_pass[1] = 0x0f;
+	hash_pass[2] = 0xc1;
+	hash_pass[3] = 0x6e;
+	hash_pass[4] = 0x71;
+	hash_pass[5] = 0xb7;
+	hash_pass[6] = 0x54;
+	hash_pass[7] = 0x63;
+	hash_pass[8] = 0xab;
+	hash_pass[9] = 0xaf;
+	hash_pass[10] = 0xb3;
+	hash_pass[11] = 0xf8;
+	hash_pass[12] = 0xbe;
+	hash_pass[13] = 0x93;
+	hash_pass[14] = 0x9d;
+	hash_pass[15] = 0x1c;
+	// > 0 if bits are past byte boundry - == 0 if exactly on byte boundry
+	leftover = n % 8; 
+	
+	// Where in char * we store actual bits of password
+	start = 16-(n/8 + (leftover > 0)); 
 
-	n = atoi(argv[1]);
-  s = 2;
-	leftover = n % 8;
-	start = 16-(n/8 + (leftover > 0));
-	for (int i = 0; i < 16; i++) {
-		key[i] = 0xFF;
-	}
-	for (int i = 0; i < 128; i++) {
-		nullify(chains[i][0], 16);
-		nullify(chains[i][1], 16);
-	}
-	nullify(password, 16); nullify(ciphertext, 16); nullify(key, 16); nullify(plaintext, 16); nullify(hash, 16);
+	// Size of both values to be written (password/reduced) in bytes	
+	pwd_size = (16 - start) * 2; 
+
+	// Number of entries we can fit in rainbow (2^s * 3 * 16/2)
+	out_size = (2 << (s-1)) * 3 * 16; 
+	out_size /= pwd_size;
+	
+	unsigned char r_table[out_size][2][16];
+
 	fp = fopen("rainbow", "r+");
-	int i = 0;
-	do {
-		read_pass = fread(&password[start], 16-start, sizeof *password, fp);
-		read_chain = fread(&plaintext[start], 16-start, sizeof *plaintext, fp);
-		copy(&password, &chains[i][0], 16);
-		copy(&plaintext, &chains[i][1], 16);
-		i++;
-	} while (read_pass > 0 & read_chain > 0);
-	for(int i = 0; i < 2; i++) {
-		print_chars(chains[i][0], 16);
-		print_chars(chains[i][1], 16);
-	}
+	// Read rainbow table into memory
+	for (int i = 0; i < out_size; i++) {
+		fread(&password[start], 16-start, sizeof *password, fp);
+		fread(&plaintext[start], 16-start, sizeof *plaintext, fp);
+		copy(password, r_table[i][0], 16);
+		copy(plaintext, r_table[i][1], 16);
+	} 
 	fclose(fp);
+	
+	// Read in hashed password value	
+	reduce(hash_pass, password, n);
+	int aes_calls = 0; int r;
+	while (!(comp_chars(ciphertext, hash_pass))) {
+		r = 0;
+		int hash_match = match(r_table, password, ctx, out_size, &aes_calls, n);
+		copy(r_table[hash_match][0], ciphertext, 16);
+		do {
+			r++;
+			reduce(ciphertext, password, n);
+			hash(password, ciphertext, ctx);
+			aes_calls++;
+		} while (!(comp_chars(ciphertext, hash_pass)) & (r < 200));
+	}
+	print_answer(password, aes_calls, n);
+
+	return 0;
 }

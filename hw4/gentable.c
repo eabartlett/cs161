@@ -62,22 +62,29 @@ void reduce (
 	}
 }
 
+void nullify (char *target, length)
+{
+	for (int i = 0; i < length; i++)
+		target[i] = 0x00;
+}
+
 /**
 	* Hash plaintext using AES
 	* Put hashed plaintext into char * given as cipher text
 	*/
 int hash (
-	char plaintext[16], 
+	char password[16], 
 	char ciphertext[16], 
-	aes_context ctx, 
-	char key[16]
+	aes_context ctx 
 	)
 {
-  if (aes_setkey_enc (&ctx, key, 128)) {
+	char null_arr[16];
+	nullify(null_arr, 16);
+  if (aes_setkey_enc (&ctx, password, 128)) {
     printf("Error setting key password\n");
     return 1;
   }
-  if (aes_crypt_ecb (&ctx, AES_ENCRYPT, plaintext, ciphertext)) {
+  if (aes_crypt_ecb (&ctx, AES_ENCRYPT, null_arr, ciphertext)) {
     printf("Error encrypting password\n");
 		return 1;
   }
@@ -88,17 +95,16 @@ int hash (
 	* Run reduce(hash(plaintext)) rounds times and end with the result in plaintext
 	*/
 void hash_reduce_chain (
-	char plaintext[16], 
+	char password[16], 
 	char ciphertext[16], 
 	aes_context ctx, 
-	char key[16],
 	int rounds,
 	int bits
 	)
 {
 	for (; rounds > 0; rounds--) {
-		hash(plaintext, ciphertext, ctx, key);
-		reduce(ciphertext, plaintext, bits);
+		hash(password, ciphertext, ctx);
+		reduce(ciphertext, password, bits);
 	}
 }
 
@@ -133,26 +139,43 @@ int main (int argc, const char * argv[])
   }
 
   FILE *fp;
-  int s, n, leftover, start;
+  int s, n, leftover, start, pwd_size, chain_len;
+	long long  out_size;
   aes_context     ctx;
-	n = atoi(argv[1]);
-  s = 2;
+	n = atoi(argv[1]); s = atoi(argv[2]);
+	
+	// > 0 if bits are past byte boundry - == 0 if exactly on byte boundry
+	leftover = n % 8; 
+	
+	// Where in char * we store actual bits of password
+	start = 16-(n/8 + (leftover > 0)); 
+
+	// Size of both values to be written (password/reduced) in bytes	
+	pwd_size = (16 - start) * 2; 
+
+	// Number of entries we can fit in rainbow (2^s * 3 * 16/2)
+	out_size = (1 << s) * 3 * 16; 
+	out_size /= pwd_size;
+	
+	// Set number of hash_reduces to do per chain
+	chain_len = 50 * (n/s) + (s > n);
+	
   unsigned char password[16], ciphertext[16], key[16], plaintext[16];
 	for (int i = 0; i < 16; i++) {
 		key[i] = 0xFF;
 	}
-	leftover = n % 8;
-	start = 16-(n/8 + (leftover > 0));
+
 	fp = fopen("rainbow", "w+");
-	for (unsigned long long pass = 0; pass < 128; pass++) {
+	printf("Size of chain: %d\n", chain_len);
+	for (unsigned long long pass = 0; pass < out_size; pass++) {
 		assign(password, pass);
-		print_chars(password, 16);
 		copy(password, plaintext, 16);
-		hash_reduce_chain(plaintext, ciphertext, ctx, key, 100, n);
-		print_chars(plaintext, 16);
+		hash_reduce_chain(plaintext, ciphertext, ctx, chain_len, n);
 		fwrite(&password[start], 16-start, sizeof *password, fp);
 		fwrite(&plaintext[start], 16-start, sizeof *plaintext, fp);
 	}
-  fclose(fp);
-  return 0;
+  
+	fclose(fp);
+  
+	return 0;
 }
