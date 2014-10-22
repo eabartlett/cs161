@@ -225,7 +225,7 @@ int main (int argc, const char * argv[])
 	int chain_len = (1 << (n-s))*pwd_size*2;
 	fp = fopen("rainbow", "r+");
 	printf("Outsize: %d\n", out_size);
-	while (!(comp_chars(ciphertext, hash_pass)) & (total < out_size)) {
+	while (!(comp_chars(ciphertext, hash_pass))) {
 		total++;
 		r = 0;
 		match(fp, plaintext, password, ctx, out_size, &aes_calls, start, n);
