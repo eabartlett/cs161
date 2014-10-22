@@ -1,0 +1,15 @@
+Erik Bartlett, cs161-en, 22935019
+
+CS161 - HW 4
+
+My implementation of gentable is in gentable.c. I first calculate the maximum size of my output file in number of password/final chain entry pairs that can be written
+within the bounds specified by 3 * 16 * 2^s bytes. I then go through each possible password, starting at 0 and compute its hash-reduce chain for 2^(n-s) cycles. The
+pair is only written to the rainbow table if it does not collide with itself before 2^(n-s-1) hash-reduce cycles. I used a bitmap of the possible passwords to keep track
+of the passwords I had seen in any given chain - and only worried about collisions in the local chain as opposed to the number of global collisions. Once I have written
+as many pairs as is allowed by the space constraint gentable.c is finished.
+
+Crack' implementation uses many of the same functions as gentable.c. I again start by calculating similar constants to those of gentable.c (output table size, etc) and then
+do a loop to find a matching password to the hash. In this loop I call a method "match" that takes the open rainbow table file and reads through every hash-chain value with
+the current reduced password until it finds a match, and then it copies that chain's initial password into a given pointer. Then, one hash chain at a time, the password's hash
+is compared to the input hash to see if there is a match. If there is a match it is returned; if the password is hashed to a point that it is past the point of matching in the
+chain the password is hashed and the loop is started over, looking for a new match. This goes on until it has matched with

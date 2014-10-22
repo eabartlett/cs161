@@ -29,7 +29,7 @@ print_answer (
 	printf(". AES was evaluated %d times.\n", calls);
 }
 
-void nullify (char *target, length)
+void nullify (char *target, int length)
 {
 	for (int i = 0; i < length; i++)
 		target[i] = 0x00;
@@ -160,25 +160,34 @@ int comp_chars (char c1[16], char c2[16])
 	return 1;
 }
 
-int match (
-	char r_table[][2][16], 
+void match (
+	FILE *fp,
+	char target[], 
 	char password[],
 	aes_context ctx,
 	long long length,
 	int *aes_calls,
+	int start,
 	int n
 	)
 {
 	int hash_match = -1;
+	char temp[16], begin[16];
+	nullify(temp, 16); nullify(begin, 16);
 	while (hash_match < 0) {
+		fseek(fp, 0, SEEK_SET);
 		for (int i = 0; i < length; i++) {
-			if (comp_chars(r_table[i][1], password))
+			fread(&begin[start], 16-start, sizeof *begin, fp);
+			fread(&temp[start], 16-start, sizeof *temp, fp);
+			if (comp_chars(temp, password)) {
 				hash_match =  i;
+				break;
+			}
 		}
 		hash_reduce_chain(password, ctx, 1, n);
 		(*aes_calls)++;
 	}
-	return hash_match;
+	copy(begin, target, 16);
 }
 
 int main (int argc, const char * argv[])
@@ -210,32 +219,33 @@ int main (int argc, const char * argv[])
 	out_size = (1 << s) * 3 * 16; 
 	out_size /= pwd_size;
 	
-	unsigned char r_table[out_size][2][16];
-	fp = fopen("rainbow", "r+");
-	// Read rainbow table into memory
-	for (int i = 0; i < out_size; i++) {
-		fread(&password[start], 16-start, sizeof *password, fp);
-		fread(&plaintext[start], 16-start, sizeof *plaintext, fp);
-		copy(password, r_table[i][0], 16);
-		copy(plaintext, r_table[i][1], 16);
-	} 
-	fclose(fp);
-	
 	// Read in hashed password value	
 	reduce(hash_pass, password, n);
-	int aes_calls = 0; int r;
-	while (!(comp_chars(ciphertext, hash_pass))) {
+	int aes_calls = 0; int r; int total= 0;
+	int chain_len = (1 << (n-s))*pwd_size*2;
+	fp = fopen("rainbow", "r+");
+	printf("Outsize: %d\n", out_size);
+	while (!(comp_chars(ciphertext, hash_pass)) & (total < out_size)) {
+		total++;
 		r = 0;
-		int hash_match = match(r_table, password, ctx, out_size, &aes_calls, n);
-		copy(r_table[hash_match][0], ciphertext, 16);
+		match(fp, plaintext, password, ctx, out_size, &aes_calls, start, n);
+		copy(plaintext, ciphertext, 16);
 		do {
 			r++;
-			reduce(ciphertext, password, n);
-			hash(password, ciphertext, ctx);
+			reduce(ciphertext, plaintext, n);
+			hash(plaintext, ciphertext, ctx);
 			aes_calls++;
-		} while (!(comp_chars(ciphertext, hash_pass)) & (r < 200));
+		} while (!(comp_chars(ciphertext, hash_pass)) & (r < chain_len));
+		if (!comp_chars(ciphertext, hash_pass)) {
+			hash(password, ciphertext, ctx);
+			reduce(ciphertext, password, n);
+		}
 	}
-	print_answer(password, aes_calls, n);
+	if (total >= out_size)
+		printf("Failure\n");
+	else
+		print_answer(plaintext, aes_calls, n);
+	fclose(fp);
 
 	return 0;
 }

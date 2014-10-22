@@ -35,6 +35,37 @@ void assign (
 }
 
 /**
+	* get_val -- return an unsigned in contained in the least significant bits 
+	* of a 16 byte char array pass
+	*/
+unsigned int get_val (unsigned char *in, int bits)
+{
+	int i; int res = 0;
+	int left = bits % 8;
+	int start = 16 - ((bits/8) + (left > 0));
+	for (i = start; i < 16; i++) {
+		res = (res << 8) | (unsigned int) in[i];
+	}
+	return res;
+}
+
+/**
+	* get_or_set -- return the value of nth bit (where n is the integer value of a password
+	* of bits bits long) in the bitmap char array - if it is 0 set it to 1
+	*/
+int get_or_set (char *password, char *bitmap, int bits)
+{
+	unsigned int len = (1 << bits)/8;
+	unsigned int bit = get_val(password, bits);
+	unsigned int left = bit % 8;
+	unsigned int index = bit/8 + (left > 0);
+	int prev =  (int) (bitmap[len-index] & (1 << (left - 1))) >> (left - 1);
+	if (!prev)
+		bitmap[len-index] |= (1 << (left - 1));
+	return prev;
+}
+
+/**
 	* Reduce the text given in original to a given number of bits and place in text
 	* bits - number of bits to reduce original to
 	* target - where to place reduced number 
@@ -62,7 +93,7 @@ void reduce (
 	}
 }
 
-void nullify (char *target, length)
+void nullify (char *target, int length)
 {
 	for (int i = 0; i < length; i++)
 		target[i] = 0x00;
@@ -94,7 +125,7 @@ int hash (
 /**
 	* Run reduce(hash(plaintext)) rounds times and end with the result in plaintext
 	*/
-void hash_reduce_chain (
+int hash_reduce_chain (
 	char password[16], 
 	char ciphertext[16], 
 	aes_context ctx, 
@@ -102,10 +133,18 @@ void hash_reduce_chain (
 	int bits
 	)
 {
-	for (; rounds > 0; rounds--) {
+	char *bitmap = malloc((1<<bits)/8);
+	nullify(bitmap, (1<<bits)/8);
+	for (int i = 0; rounds > i; i++) {
 		hash(password, ciphertext, ctx);
 		reduce(ciphertext, password, bits);
+		if (get_or_set(password, bitmap, bits)) {
+			free(bitmap);
+			return i;
+		}
 	}
+	free(bitmap);
+	return rounds;
 }
 
 void copy(
@@ -130,9 +169,9 @@ int main (int argc, const char * argv[])
   FILE *fp;
   int s, n, leftover, start, pwd_size, chain_len;
 	long long  out_size;
+  unsigned char password[16], ciphertext[16], key[16], plaintext[16];
   aes_context     ctx;
 	n = atoi(argv[1]); s = atoi(argv[2]);
-	
 	// > 0 if bits are past byte boundry - == 0 if exactly on byte boundry
 	leftover = n % 8; 
 	
@@ -147,23 +186,29 @@ int main (int argc, const char * argv[])
 	out_size /= pwd_size;
 	
 	// Set number of hash_reduces to do per chain
-	chain_len = 50 * (n/s) + (s > n);
+	chain_len = (1 << (n-s))*pwd_size*2;
+	int min_chain = (1 << (n-s))*pwd_size/2;
 	
-  unsigned char password[16], ciphertext[16], key[16], plaintext[16];
 	for (int i = 0; i < 16; i++) {
 		key[i] = 0xFF;
 	}
-
 	fp = fopen("rainbow", "w+");
-	printf("Size of chain: %d\n", chain_len);
-	for (unsigned long long pass = 0; pass < out_size; pass++) {
-		assign(password, pass);
-		copy(password, plaintext, 16);
-		hash_reduce_chain(plaintext, ciphertext, ctx, chain_len, n);
+	int pass = 0;
+	int bad_pass = 0;
+	for (unsigned int written = 0; written < out_size; written++) {
+		int chain = 0;
+		do {
+			assign(password, pass);
+			copy(password, plaintext, 16);
+			chain = hash_reduce_chain(plaintext, ciphertext, ctx, chain_len, n);
+			pass++;
+			if (chain < min_chain)
+				bad_pass++;
+		} while (chain < min_chain);
 		fwrite(&password[start], 16-start, sizeof *password, fp);
 		fwrite(&plaintext[start], 16-start, sizeof *plaintext, fp);
 	}
-  
+  printf("Colliding passwords: %d\n", bad_pass);
 	fclose(fp);
   
 	return 0;
