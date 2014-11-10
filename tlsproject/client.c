@@ -133,18 +133,37 @@ int main(int argc, char **argv) {
 
   // YOUR CODE HERE
   // IMPLEMENT THE TLS HANDSHAKE
+
+  // Create, send, and receive the hello messages.
   hello_message clientHello = {CLIENT_HELLO, random_int(), TLS_RSA_WITH_AES_128_ECB_SHA256};
   send_tls_message(clientHello, HANDSHAKE_PORT, HELLO_MSG_SIZE);
   hello_message serverHello;
   receive_tls_message(HANDSHAKE_PORT, serverHello, HELLO_MSG_SIZE, SERVER_HELLO);
 
+  // Create, send, and receive the certificates.
   cert_message clientCert = {CLIENT_CERTIFICATE, NULL};
   clientCert->cert = fread(c_file, 16);
   send_tls_message(clientCert, HANDSHAKE_PORT, CERT_MSG_SIZE);
   cert_message serverCert;
   receive_tls_message(HANDSHAKE_PORT, serverCert, CERT_MSG_SIZE, SERVER_CERTIFICATE);
 
-  //ps_msg premaster =
+  // Find the public key from the certificate.
+  mpz_t serverKey; mpz_t mpzServerCert; mpz_t caExponent; mpz_t caModulus;
+  mpz_init(serverKey); mpz_init(mpzServerCert); mpz_init(caExponent); mpz_init(caModulus);
+
+  mpz_set_str(caExponent, CA_EXPONENT, 16);
+  mpz_set_str(caModulus, CA_MODULUS, 16);
+  bytes_read = mpz_inp_str(mpzServerCert, serverCert, 0);
+  perform_rsa(serverKey, mpzServerCert, caExponent, caModulus);
+
+  // Compute the PreMaster Secret.
+  mpz_t pms; mpz_t pmSecret;
+  mpz_init(pms); mpz_init(pmSecret);
+
+  int pmValue = random_int();
+  mpz_set_si(pms, pmValue);
+
+  perform_rsa(pmSecret, pms, serverKey, ??);
 
   /*
    * START ENCRYPTED MESSAGES
