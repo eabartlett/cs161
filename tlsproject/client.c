@@ -311,16 +311,16 @@ perform_rsa(mpz_t result, mpz_t message, mpz_t e, mpz_t n)
     mpz_set_str(two, "2", 10); mpz_set_str(one, "1", 10);
     mpz_add(result, result, one);
     
-    while (mpz_cmp(zero, d) < 0) {
-        mpz_mod(comp, d, two);
+    while (mpz_cmp(zero, e) < 0) {
+        mpz_mod(comp, e, two);
         if (mpz_cmp(comp, zero) > 0) {
             mpz_mul(result, result, message);
             mpz_mod(result, result, n);
-            mpz_sub(d, d, one);
+            mpz_sub(e, e, one);
         }
         mpz_mul(message, message, message);
         mpz_mod(message, message, n);
-        mpz_div(d, d, two);
+        mpz_div(e, e, two);
     }
     mpz_clear(two); mpz_clear(one); mpz_clear(zero); mpz_clear(comp);
 }
@@ -417,6 +417,7 @@ get_cert_exponent(mpz_t result, char *cert)
 int
 get_cert_modulus(mpz_t result, char *cert)
 {
+  int err;
   char *srch, *srch2;
   char modulus[RSA_MAX_LEN/2];
   memset(modulus, 0, RSA_MAX_LEN/2);
