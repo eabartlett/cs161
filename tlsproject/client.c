@@ -134,6 +134,37 @@ int main(int argc, char **argv) {
   // YOUR CODE HERE
   // IMPLEMENT THE TLS HANDSHAKE
 
+  // Create, send, and receive the hello messages.
+  hello_message clientHello = {CLIENT_HELLO, random_int(), TLS_RSA_WITH_AES_128_ECB_SHA256};
+  send_tls_message(clientHello, HANDSHAKE_PORT, HELLO_MSG_SIZE);
+  hello_message serverHello;
+  receive_tls_message(HANDSHAKE_PORT, serverHello, HELLO_MSG_SIZE, SERVER_HELLO);
+
+  // Create, send, and receive the certificates.
+  cert_message clientCert = {CLIENT_CERTIFICATE, NULL};
+  clientCert->cert = fread(c_file, 16);
+  send_tls_message(clientCert, HANDSHAKE_PORT, CERT_MSG_SIZE);
+  cert_message serverCert;
+  receive_tls_message(HANDSHAKE_PORT, serverCert, CERT_MSG_SIZE, SERVER_CERTIFICATE);
+
+  // Find the public key from the certificate.
+  mpz_t serverKey; mpz_t mpzServerCert; mpz_t caExponent; mpz_t caModulus;
+  mpz_init(serverKey); mpz_init(mpzServerCert); mpz_init(caExponent); mpz_init(caModulus);
+
+  mpz_set_str(caExponent, CA_EXPONENT, 16);
+  mpz_set_str(caModulus, CA_MODULUS, 16);
+  bytes_read = mpz_inp_str(mpzServerCert, serverCert, 0);
+  perform_rsa(serverKey, mpzServerCert, caExponent, caModulus);
+
+  // Compute the PreMaster Secret.
+  mpz_t pms; mpz_t pmSecret;
+  mpz_init(pms); mpz_init(pmSecret);
+
+  int pmValue = random_int();
+  mpz_set_si(pms, pmValue);
+
+  perform_rsa(pmSecret, pms, serverKey, ??);
+
   /*
    * START ENCRYPTED MESSAGES
    */
@@ -147,7 +178,7 @@ int main(int argc, char **argv) {
 
   aes_init(&enc_ctx);
   aes_init(&dec_ctx);
-  
+
   // YOUR CODE HERE
   // SET AES KEYS
 
@@ -271,7 +302,7 @@ compute_master_secret(int ps, int client_random, int server_random, unsigned cha
 int
 send_tls_message(int socketno, void *msg, int msg_len)
 {
-  // YOUR CODE HERE
+  write(socketno, msg, msg_len);
 }
 
 /*
@@ -287,7 +318,18 @@ send_tls_message(int socketno, void *msg, int msg_len)
 int
 receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 {
-  // YOUR CODE HERE
+  if (msg_type == SERVER_HELLO) {
+
+  } else if (msg_type == SERVER_CERTIFICATE) {
+    //decrypt_cert();
+  } else if (msg_type == VERIFY_MASTER_SECRET) {
+
+  } else if (msg_type == ENCRYPTED_MESSAGE) {
+
+  } else {
+    printf("Invalid message type! Exiting now.");
+    return 0;
+  }
 }
 
 
@@ -310,7 +352,7 @@ perform_rsa(mpz_t result, mpz_t message, mpz_t e, mpz_t n)
     mpz_init(zero); mpz_init(one); mpz_init(two); mpz_init(comp);
     mpz_set_str(two, "2", 10); mpz_set_str(one, "1", 10);
     mpz_add(result, result, one);
-    
+
     while (mpz_cmp(zero, e) < 0) {
         mpz_mod(comp, e, two);
         if (mpz_cmp(comp, zero) > 0) {
