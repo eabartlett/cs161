@@ -133,12 +133,12 @@ int main(int argc, char **argv) {
 
   // YOUR CODE HERE
   // IMPLEMENT THE TLS HANDSHAKE
-
-  // Create, send, and receive the hello messages.
+  
+	// Create, send, and receive the hello messages.
   hello_message *client_hello = {CLIENT_HELLO, random_int(), TLS_RSA_WITH_AES_128_ECB_SHA256};
   send_tls_message(HANDSHAKE_PORT, client_hello, HELLO_MSG_SIZE);
   hello_message *server_hello;
-  receive_tls_message(HANDSHAKE_PORT, server_hello, HELLO_MSG_SIZE, SERVER_HELLO);
+  receive_tls_message(HANDSHAKE_PORT, server_hello, HELLO_MSG_SIZE, ENCRYPTED_MESSAGE);
 
   // Create, send, and receive the certificates.
   cert_message *client_cert = {CLIENT_CERTIFICATE, NULL};
@@ -148,27 +148,36 @@ int main(int argc, char **argv) {
   receive_tls_message(HANDSHAKE_PORT, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
 
   // Find the public key from the certificate.
-  mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t ca_exponent; mpz_t ca_modulus; mpz_t server_exp; mpz_t server_mod;
+  mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t server_exp; mpz_t server_mod;
+	mpz_t ca_exponent; mpz_t ca_modulus; 
 	char *server_cert_char;
-  mpz_init(mpz_server_cert); mpz_init(encrypted_s_cert); mpz_init(ca_exponent); mpz_init(ca_modulus); mpz_init(server_exp); mpz_init(server_mod);
-
+  
+	mpz_init(mpz_server_cert); mpz_init(encrypted_s_cert);mpz_init(server_exp); mpz_init(server_mod);
+	mpz_init(ca_exponent); mpz_init(ca_modulus); 
   mpz_set_str(ca_exponent, CA_EXPONENT, 16);
   mpz_set_str(ca_modulus, CA_MODULUS, 16);
   int bytes_read = mpz_inp_str(encrypted_s_cert, server_cert_msg->cert, 0);
-  perform_rsa(mpz_server_cert, encrypted_s_cert, ca_exponent, ca_modulus);
+  
+	perform_rsa(mpz_server_cert, encrypted_s_cert, ca_exponent, ca_modulus);
 	mpz_get_ascii(server_cert_char, mpz_server_cert);
 	get_cert_exponent(server_exp, server_cert_char);
 	get_cert_modulus(server_mod, server_cert_char);
 
 
   // Compute the PreMaster Secret.
-  mpz_t pms; mpz_t pmSecret;
-  mpz_init(pms); mpz_init(pmSecret);
+  mpz_t pms; mpz_t pm_secret;
+  mpz_init(pms); mpz_init(pm_secret);
 
   int pmValue = random_int();
   mpz_set_si(pms, pmValue);
 
-  perform_rsa(pmSecret, pms, server_exp, server_mod);
+  perform_rsa(pm_secret, pms, server_exp, server_mod);
+	
+	ps_msg *pms_msg;
+	pms_msg->type = PREMASTER_SECRET;
+	mpz_get_ascii(pms_msg->ps, pm_secret);
+	send_tls_message(HANDSHAKE_PORT, pms_msg, PS_MSG_SIZE);
+	1/0;
 
   /*
    * START ENCRYPTED MESSAGES
@@ -323,18 +332,37 @@ send_tls_message(int socketno, void *msg, int msg_len)
 int
 receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 {
-  if (msg_type == SERVER_HELLO) {
-
-  } else if (msg_type == SERVER_CERTIFICATE) {
-    //decrypt_cert();
-  } else if (msg_type == VERIFY_MASTER_SECRET) {
-
-  } else if (msg_type == ENCRYPTED_MESSAGE) {
-
-  } else {
-    printf("Invalid message type! Exiting now.");
-    return 0;
-  }
+	// read in msg
+	read(HANDSHAKE_PORT, msg, msg_len);
+	if (msg_type == CLIENT_HELLO | msg_type == SERVER_HELLO) {
+		if (((hello_message*)msg)->type != msg_type) {
+			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((hello_message*)msg)->type);
+			exit(ERR_FAILURE);
+		}
+	}
+	if (msg_type == CLIENT_CERTIFICATE | msg_type == SERVER_CERTIFICATE) {
+		if (((cert_message*)msg)->type != msg_type) {
+			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((cert_message*)msg)->type);
+			exit(ERR_FAILURE);
+		}
+	}
+	if (msg_type == PREMASTER_SECRET | msg_type == VERIFY_MASTER_SECRET) {
+		if (((ps_msg*)msg)->type != msg_type) {
+			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((ps_msg*)msg)->type);
+			exit(ERR_FAILURE);
+		}
+	}
+	if (msg_type == ENCRYPTED_MESSAGE) {
+		if (((tls_msg*)msg)->type != msg_type) {
+			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((tls_msg*)msg)->type);
+			exit(ERR_FAILURE);
+		}
+	}
+	if (msg_type == ERROR_MESSAGE) {
+			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((hello_message*)msg)->type);
+		exit(ERR_FAILURE);
+	}
+	return 0;
 }
 
 
