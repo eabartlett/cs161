@@ -135,17 +135,22 @@ int main(int argc, char **argv) {
   // IMPLEMENT THE TLS HANDSHAKE
   
 	// Create, send, and receive the hello messages.
-  hello_message *client_hello = {CLIENT_HELLO, random_int(), TLS_RSA_WITH_AES_128_ECB_SHA256};
-  send_tls_message(HANDSHAKE_PORT, client_hello, HELLO_MSG_SIZE);
+	int client_random, server_random;
+	client_random = random_int();
+  hello_message *client_hello = {CLIENT_HELLO, client_random, TLS_RSA_WITH_AES_128_ECB_SHA256};
+  send_tls_message(sockfd, client_hello, HELLO_MSG_SIZE);
   hello_message *server_hello;
-  receive_tls_message(HANDSHAKE_PORT, server_hello, HELLO_MSG_SIZE, ENCRYPTED_MESSAGE);
+  receive_tls_message(sockfd, server_hello, HELLO_MSG_SIZE, SERVER_HELLO);
+	server_random = server_hello->random;
+	printf("AT THE BEGINNING THERE WAS NOTHING\n");
 
   // Create, send, and receive the certificates.
   cert_message *client_cert = {CLIENT_CERTIFICATE, NULL};
   fread(c_file, client_cert->cert, INT_SIZE, 16);
-  send_tls_message(HANDSHAKE_PORT, client_cert, CERT_MSG_SIZE);
+  send_tls_message(sockfd, client_cert, CERT_MSG_SIZE);
   cert_message *server_cert_msg;
-  receive_tls_message(HANDSHAKE_PORT, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
+  receive_tls_message(sockfd, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
+	printf("RECEIVED OUR FIRST MESSAGE\n");
 
   // Find the public key from the certificate.
   mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t server_exp; mpz_t server_mod;
@@ -176,8 +181,7 @@ int main(int argc, char **argv) {
 	ps_msg *pms_msg;
 	pms_msg->type = PREMASTER_SECRET;
 	mpz_get_ascii(pms_msg->ps, pm_secret);
-	send_tls_message(HANDSHAKE_PORT, pms_msg, PS_MSG_SIZE);
-	1/0;
+	send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
 
   /*
    * START ENCRYPTED MESSAGES
@@ -333,7 +337,7 @@ int
 receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 {
 	// read in msg
-	read(HANDSHAKE_PORT, msg, msg_len);
+	read(socketno, msg, msg_len);
 	if (msg_type == CLIENT_HELLO | msg_type == SERVER_HELLO) {
 		if (((hello_message*)msg)->type != msg_type) {
 			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((hello_message*)msg)->type);
