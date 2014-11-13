@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
 
   // YOUR CODE HERE
   // IMPLEMENT THE TLS HANDSHAKE
-  
+
 	// Create, send, and receive the hello messages.
 	int client_random, server_random;
 	client_random = random_int();
@@ -154,15 +154,15 @@ int main(int argc, char **argv) {
 
   // Find the public key from the certificate.
   mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t server_exp; mpz_t server_mod;
-	mpz_t ca_exponent; mpz_t ca_modulus; 
+	mpz_t ca_exponent; mpz_t ca_modulus;
 	char *server_cert_char;
-  
+
 	mpz_init(mpz_server_cert); mpz_init(encrypted_s_cert);mpz_init(server_exp); mpz_init(server_mod);
-	mpz_init(ca_exponent); mpz_init(ca_modulus); 
+	mpz_init(ca_exponent); mpz_init(ca_modulus);
   mpz_set_str(ca_exponent, CA_EXPONENT, 16);
   mpz_set_str(ca_modulus, CA_MODULUS, 16);
   int bytes_read = mpz_inp_str(encrypted_s_cert, server_cert_msg->cert, 0);
-  
+
 	perform_rsa(mpz_server_cert, encrypted_s_cert, ca_exponent, ca_modulus);
 	mpz_get_ascii(server_cert_char, mpz_server_cert);
 	get_cert_exponent(server_exp, server_cert_char);
@@ -170,18 +170,27 @@ int main(int argc, char **argv) {
 
 
   // Compute the PreMaster Secret.
-  mpz_t pms; mpz_t pm_secret;
-  mpz_init(pms); mpz_init(pm_secret);
+  mpz_t pms; mpz_t pm_secret; mpz_t encryped_master_secret; mpz_t master_secret; mpz_t verify_secret;
+  mpz_init(pms); mpz_init(pm_secret); mpz_init(encrypted_master_secret); mpz_init(master_secret); mpz_init(verify_secret);
 
   int pmValue = random_int();
   mpz_set_si(pms, pmValue);
-
   perform_rsa(pm_secret, pms, server_exp, server_mod);
-	
+
 	ps_msg *pms_msg;
 	pms_msg->type = PREMASTER_SECRET;
 	mpz_get_ascii(&(pms_msg->ps), pm_secret);
-	send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
+
+  send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
+
+  // Recevie the Master Secret
+  receive_tls_message(sockfd, encryped_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
+  decrypt_master_secret(master_secret, encrypted_master_secret, client_exp, client_mod);
+  compute_master_secret(pm_secret, client_random, server_random, verify_secret);
+  if (verify_master_secret(master_secret, verify_secret)) {
+    printf("Error, master secret is not valid!");
+    exit(ERR_FAILURE);
+  }
 
   /*
    * START ENCRYPTED MESSAGES
@@ -288,9 +297,9 @@ decrypt_cert(mpz_t decrypted_cert, cert_message *cert, mpz_t key_exp, mpz_t key_
  *                         the master secret.
  */
 void
-decrypt_verify_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t key_mod)
+decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t key_mod)
 {
-  // YOUR CODE HERE
+  perform_rsa(decrypted_ms, ms_ver, key_exp, key_mod);
 }
 
 /*
@@ -303,11 +312,22 @@ decrypt_verify_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, 
  *                         Write the end result here.
  */
 void
-compute_master_secret(int ps, int client_random, int server_random, unsigned char *master_secret)
+compute_master_secret(int ps, int client_random, int server_random, mpz_t *master_secret)
 {
   // YOUR CODE HERE
 }
-
+/*
+ * \brief                 Verifies that the master secret is valid.
+ *
+ *
+ * \param master_secret   The secret received from the server.
+ * \param verify_secret   The secret computed by us.
+ */
+int
+verify_master_secret(mpz_t master_secret, mpz_t verify_secret)
+{
+   return mpz_cmp(master_secret, verify_secret) == 0;
+}
 /*
  * \brief                  Sends a message to the connected server.
  *                         Returns an error code.
