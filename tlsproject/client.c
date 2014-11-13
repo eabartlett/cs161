@@ -139,6 +139,7 @@ int main(int argc, char **argv) {
 	client_random = random_int();
   hello_message *client_hello = {CLIENT_HELLO, client_random, TLS_RSA_WITH_AES_128_ECB_SHA256};
   send_tls_message(sockfd, client_hello, HELLO_MSG_SIZE);
+	printf("SENT OUR FIRST MESSAGE\n");
   hello_message *server_hello;
   receive_tls_message(sockfd, server_hello, HELLO_MSG_SIZE, SERVER_HELLO);
 	server_random = server_hello->random;
@@ -150,7 +151,6 @@ int main(int argc, char **argv) {
   send_tls_message(sockfd, client_cert, CERT_MSG_SIZE);
   cert_message *server_cert_msg;
   receive_tls_message(sockfd, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
-	printf("RECEIVED OUR FIRST MESSAGE\n");
 
   // Find the public key from the certificate.
   mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t server_exp; mpz_t server_mod;
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
 	
 	ps_msg *pms_msg;
 	pms_msg->type = PREMASTER_SECRET;
-	mpz_get_ascii(pms_msg->ps, pm_secret);
+	mpz_get_ascii(&(pms_msg->ps), pm_secret);
 	send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
 
   /*
@@ -337,7 +337,9 @@ int
 receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 {
 	// read in msg
+	printf("READING\n");
 	read(socketno, msg, msg_len);
+	printf("READ\n");
 	if (msg_type == CLIENT_HELLO | msg_type == SERVER_HELLO) {
 		if (((hello_message*)msg)->type != msg_type) {
 			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((hello_message*)msg)->type);
