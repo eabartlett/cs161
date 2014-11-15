@@ -169,13 +169,13 @@ int main(int argc, char **argv) {
 
 	perform_rsa(mpz_server_cert, encrypted_s_cert, ca_exponent, ca_modulus);
 	mpz_get_ascii(server_cert_char, mpz_server_cert);
-	
+
 	get_cert_exponent(server_exp, server_cert_char);
 	get_cert_modulus(server_mod, server_cert_char);
 
 
   // Compute the PreMaster Secret.
-	ps_msg  encrypted_master_secret; 
+	ps_msg  encrypted_master_secret;
   mpz_t pms; mpz_t pm_secret; mpz_t master_secret; mpz_t verify_secret;
   mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret);
 
@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
 	ps_msg pms_msg;
 	pms_msg.type = PREMASTER_SECRET;
 	mpz_get_str(pms_msg.ps, 16, pm_secret);
-	
+
   send_tls_message(sockfd, &pms_msg, PS_MSG_SIZE);
 
   // Recevie the Master Secret
@@ -311,7 +311,7 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
 {
 	mpz_t encrypted;
 	mpz_init(encrypted);
-	mpz_set_str(encrypted, ms_ver->ps, 16);	
+	mpz_set_str(encrypted, ms_ver->ps, 16);
   perform_rsa(decrypted_ms, ms_ver, key_exp, key_mod);
 }
 
@@ -327,7 +327,24 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
 void
 compute_master_secret(int ps, int client_random, int server_random, mpz_t master_secret)
 {
-  // YOUR CODE HERE
+  char *hashed_master_secret = malloc(INT_SIZE * 4);
+  char *master_secret_array = malloc(INT_SIZE * 4);
+  memcpy(master_secret_array, ps, INT_SIZE);
+  memcpy(master_secret_array + INT_SIZE, client_random, INT_SIZE);
+  memcpy(master_secret_array + (2 * INT_SIZE), server_random, INT_SIZE);
+  memcpy(master_secret_array + (3 * INT_SIZE), ps, INT_SIZE);
+
+  printf("Memcpy successful!\n");
+  SHA256_CTX ctx;
+  sha256_init(&ctx);
+  sha256_update(&ctx, master_secret_array, INT_SIZE * 4);
+  sha256_final(&ctx, hashed_master_secret);
+  printf("SHA256 successful!\n");
+
+  master_secret_array = hex_to_str(hashed_master_secret, INT_SIZE * 4);
+  printf("Hex to str successful!\n");
+  mpz_set_str(master_secret, 16, master_secret_array);
+  printf("Master secret should be correct.\n");
 }
 /*
  * \brief                 Verifies that the master secret is valid.
