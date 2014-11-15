@@ -135,33 +135,34 @@ int main(int argc, char **argv) {
   // IMPLEMENT THE TLS HANDSHAKE
 
 	// Create, send, and receive the hello messages.
-	int client_random, server_random;
+	int client_random, server_random, sent;
 	client_random = random_int();
-  hello_message *client_hello = {CLIENT_HELLO, client_random, TLS_RSA_WITH_AES_128_ECB_SHA256};
-  send_tls_message(sockfd, client_hello, HELLO_MSG_SIZE);
-	printf("SENT OUR FIRST MESSAGE\n");
-  hello_message *server_hello;
-  receive_tls_message(sockfd, server_hello, HELLO_MSG_SIZE, SERVER_HELLO);
-	server_random = server_hello->random;
-	printf("AT THE BEGINNING THERE WAS NOTHING\n");
+  hello_message client_hello = {CLIENT_HELLO, client_random, TLS_RSA_WITH_AES_128_ECB_SHA256};
+  sent = send_tls_message(sockfd, &client_hello, HELLO_MSG_SIZE);
+	if (sent) {
+		exit(ERR_FAILURE);
+	}
+  hello_message server_hello;
+  receive_tls_message(sockfd, &server_hello, HELLO_MSG_SIZE, SERVER_HELLO);
+	server_random = server_hello.random;
 
   // Create, send, and receive the certificates.
-  cert_message *client_cert = {CLIENT_CERTIFICATE, NULL};
-  fread(c_file, client_cert->cert, INT_SIZE, 16);
-  send_tls_message(sockfd, client_cert, CERT_MSG_SIZE);
-  cert_message *server_cert_msg;
-  receive_tls_message(sockfd, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
+  cert_message client_cert = {CLIENT_CERTIFICATE, NULL};
+  fread(&(client_cert.cert), INT_SIZE, RSA_MAX_LEN, c_file);
+  send_tls_message(sockfd, &client_cert, CERT_MSG_SIZE);
+  cert_message server_cert_msg;
+  receive_tls_message(sockfd, &server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
 
   // Find the public key from the certificate.
   mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t server_exp; mpz_t server_mod;
 	mpz_t ca_exponent; mpz_t ca_modulus;
-	char *server_cert_char;
-
+	char server_cert_char[RSA_MAX_LEN];
+	server_cert_char[RSA_MAX_LEN-1] = 0x00;
 	mpz_init(mpz_server_cert); mpz_init(encrypted_s_cert);mpz_init(server_exp); mpz_init(server_mod);
 	mpz_init(ca_exponent); mpz_init(ca_modulus);
   mpz_set_str(ca_exponent, CA_EXPONENT, 16);
   mpz_set_str(ca_modulus, CA_MODULUS, 16);
-  int bytes_read = mpz_inp_str(encrypted_s_cert, server_cert_msg->cert, 0);
+  int bytes_read = mpz_set_str(encrypted_s_cert, server_cert_msg.cert, 16);
 
 	perform_rsa(mpz_server_cert, encrypted_s_cert, ca_exponent, ca_modulus);
 	mpz_get_ascii(server_cert_char, mpz_server_cert);
@@ -170,22 +171,23 @@ int main(int argc, char **argv) {
 
 
   // Compute the PreMaster Secret.
-  mpz_t pms; mpz_t pm_secret; mpz_t encryped_master_secret; mpz_t master_secret; mpz_t verify_secret;
-  mpz_init(pms); mpz_init(pm_secret); mpz_init(encrypted_master_secret); mpz_init(master_secret); mpz_init(verify_secret);
+	ps_msg  encrypted_master_secret; 
+  mpz_t pms; mpz_t pm_secret; mpz_t master_secret; mpz_t verify_secret;
+  mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret);
 
   int pmValue = random_int();
   mpz_set_si(pms, pmValue);
   perform_rsa(pm_secret, pms, server_exp, server_mod);
 
-	ps_msg *pms_msg;
-	pms_msg->type = PREMASTER_SECRET;
-	mpz_get_ascii(&(pms_msg->ps), pm_secret);
-
-  send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
+	ps_msg pms_msg;
+	pms_msg.type = PREMASTER_SECRET;
+	mpz_get_ascii(&(pms_msg.ps), pm_secret);
+	
+  send_tls_message(sockfd, &pms_msg, PS_MSG_SIZE);
 
   // Recevie the Master Secret
-  receive_tls_message(sockfd, encryped_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
-  decrypt_master_secret(master_secret, encrypted_master_secret, client_exp, client_mod);
+  receive_tls_message(sockfd, &encrypted_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
+  decrypt_master_secret(master_secret, &encrypted_master_secret, client_exp, client_mod);
   compute_master_secret(pm_secret, client_random, server_random, verify_secret);
   if (verify_master_secret(master_secret, verify_secret)) {
     printf("Error, master secret is not valid!");
@@ -299,6 +301,9 @@ decrypt_cert(mpz_t decrypted_cert, cert_message *cert, mpz_t key_exp, mpz_t key_
 void
 decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t key_mod)
 {
+	mpz_t encrypted;
+	mpz_init(encrypted);
+	mpz_set_str(encrypted, ms_ver->ps, 16);	
   perform_rsa(decrypted_ms, ms_ver, key_exp, key_mod);
 }
 
@@ -312,7 +317,7 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
  *                         Write the end result here.
  */
 void
-compute_master_secret(int ps, int client_random, int server_random, mpz_t *master_secret)
+compute_master_secret(int ps, int client_random, int server_random, mpz_t master_secret)
 {
   // YOUR CODE HERE
 }
@@ -340,7 +345,10 @@ verify_master_secret(mpz_t master_secret, mpz_t verify_secret)
 int
 send_tls_message(int socketno, void *msg, int msg_len)
 {
-  write(socketno, msg, msg_len);
+  int written = write(socketno, msg, msg_len);
+  if (msg_len == written)
+  	return 0;
+  return 1;
 }
 
 /*
@@ -358,7 +366,7 @@ receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 {
 	// read in msg
 	printf("READING\n");
-	read(socketno, msg, msg_len);
+	int r = read(socketno, msg, msg_len);
 	printf("READ\n");
 	if (msg_type == CLIENT_HELLO | msg_type == SERVER_HELLO) {
 		if (((hello_message*)msg)->type != msg_type) {
