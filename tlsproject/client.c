@@ -153,27 +153,28 @@ int main(int argc, char **argv) {
   // Create, send, and receive the certificates.
   cert_message *client_cert = malloc(CERT_MSG_SIZE);
 	client_cert->type = CLIENT_CERTIFICATE;
-  fread(client_cert->cert, INT_SIZE, RSA_MAX_LEN, c_file);
+  fread(client_cert->cert, 1, RSA_MAX_LEN, c_file);
+	int i;
   send_tls_message(sockfd, client_cert, CERT_MSG_SIZE);
   cert_message *server_cert_msg = malloc(CERT_MSG_SIZE);
   receive_tls_message(sockfd, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
 
   // Find the public key from the certificate.
-  mpz_t mpz_server_cert; mpz_t encrypted_s_cert; mpz_t server_exp; mpz_t server_mod;
-	mpz_t ca_exponent; mpz_t ca_modulus;
-	char *server_cert_char = malloc(RSA_MAX_LEN);
-	mpz_init(mpz_server_cert); mpz_init(encrypted_s_cert);mpz_init(server_exp); mpz_init(server_mod);
-	mpz_init(ca_exponent); mpz_init(ca_modulus);
-  mpz_set_str(ca_exponent, CA_EXPONENT+2, 16);
-  mpz_set_str(ca_modulus, CA_MODULUS+2, 16);
-  mpz_set_str(encrypted_s_cert, (server_cert_msg->cert)+2, 16);
+	char *server_cert_char;
+	mpz_t server_exp; mpz_t server_mod; mpz_t ca_mod; mpz_t ca_exp; mpz_t server_cert;
 
-	perform_rsa(mpz_server_cert, encrypted_s_cert, ca_exponent, ca_modulus);
-	mpz_get_ascii(server_cert_char, mpz_server_cert);
-
+	mpz_init(server_exp); mpz_init(server_mod); mpz_init(server_cert);
+	mpz_init(ca_exp); mpz_init(ca_mod);
+	
+	mpz_set_str(ca_mod, CA_MODULUS+2, 16); mpz_set_str(ca_exp, CA_EXPONENT+2, 16);
+	decrypt_cert(server_cert ,server_cert_msg, ca_exp, ca_mod);
+	mpz_get_ascii(server_cert_char, server_cert);
 	get_cert_exponent(server_exp, server_cert_char);
 	get_cert_modulus(server_mod, server_cert_char);
 
+	printf("Server Cert: %s\n", server_cert_char);
+	printf("Server Mod: %s\n", mpz_get_str(NULL, 16, server_mod));
+	printf("Server Exp: %s\n", mpz_get_str(NULL, 16, server_exp));
 
   // Compute the PreMaster Secret.
 	ps_msg  *encrypted_master_secret = malloc(PS_MSG_SIZE);
@@ -181,22 +182,21 @@ int main(int argc, char **argv) {
   mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret);
 
   int pm_value = random_int();
-  mpz_set_si(pms, pm_value);
+  mpz_set_ui(pms, pm_value);
+	printf("PM int: %d\n", pm_value);
+	printf("PM mpz: %d\n", mpz_get_ui(pms));
   perform_rsa(pm_secret, pms, server_exp, server_mod);
 
-	ps_msg *pms_msg = malloc(PS_MSG_SIZE);;
+	ps_msg *pms_msg = malloc(PS_MSG_SIZE);
 	pms_msg->type = PREMASTER_SECRET;
 	mpz_get_str(pms_msg->ps, 16, pm_secret);
-	int i;
-	for (i = 0; i < RSA_MAX_LEN; i++) { printf("%02x", pms_msg->ps[i]); }
-	printf("\n");
 
   send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
 
   // Receive the Master Secret
   receive_tls_message(sockfd, encrypted_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
   decrypt_master_secret(master_secret, encrypted_master_secret, client_exp, client_mod);
-  compute_master_secret(pm_secret, client_random, server_random, verify_secret);
+  compute_master_secret(pm_value, client_random, server_random, verify_secret);
   if (verify_master_secret(master_secret, verify_secret)) {
     printf("Error, master secret is not valid!\n");
     exit(ERR_FAILURE);
@@ -223,14 +223,7 @@ int main(int argc, char **argv) {
 	free(pms_msg); free(encrypted_master_secret);
   // SET AES KEYS
 	char key[16];
-	printf("master secret: ");
-	for (i = 0; i < 16; i++) { printf("%02x", key[i]&0xff); }
-	printf("\n");
-	mpz_to_char(key, master_secret, 16);
-	printf("master secret: %s\n", mpz_get_str(NULL, 16, master_secret));
-	printf("master secret: ");
-	for (i = 0; i < 16; i++) { printf("%02x", key[i]&0xff); }
-	printf("\n");
+	strncpy(key, mpz_get_str(NULL, 16, master_secret), 16);
 	aes_setkey_enc(&enc_ctx, key, 128);
 	aes_setkey_enc(&dec_ctx, key, 128);
 
@@ -304,9 +297,13 @@ int main(int argc, char **argv) {
  *                         the certificate.
  */
 void
-decrypt_cert(mpz_t decrypted_cert, cert_message *cert, mpz_t key_exp, mpz_t key_mod)
+decrypt_cert(mpz_t decrypted_cert, cert_message *cert_msg, mpz_t key_exp, mpz_t key_mod)
 {
-  // YOUR CODE HERE
+  mpz_t encrypted_s_cert;	
+	mpz_init(encrypted_s_cert);
+  mpz_set_str(encrypted_s_cert, (cert_msg->cert)+2, 16);
+
+	perform_rsa(decrypted_cert, encrypted_s_cert, key_exp, key_mod);
 }
 
 /*
@@ -326,9 +323,12 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
 {
 	mpz_t encrypted;
 	mpz_init(encrypted);
-	int i;
 	mpz_set_str(encrypted, ms_ver->ps, 16);
+	printf("Exp: %s\n", mpz_get_str(NULL, 16, key_exp));
+	printf("Mod: %s\n", mpz_get_str(NULL, 16, key_mod));
+	printf("Encypted: %s\n", mpz_get_str(NULL, 16, encrypted));
   perform_rsa(decrypted_ms, encrypted, key_exp, key_mod);
+	printf("Decrypted: %s\n", mpz_get_str(NULL, 16, decrypted_ms));
 }
 
 /*
@@ -343,26 +343,18 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
 void
 compute_master_secret(int ps, int client_random, int server_random, mpz_t master_secret)
 {
-  char *hashed_master_secret = malloc(INT_SIZE * 4);
-  char *master_secret_array = malloc(INT_SIZE * 4);
-  memcpy(master_secret_array, &ps, INT_SIZE);
-  memcpy(master_secret_array + INT_SIZE, &client_random, INT_SIZE);
-  memcpy(master_secret_array + (2 * INT_SIZE), &server_random, INT_SIZE);
-  memcpy(master_secret_array + (3 * INT_SIZE), &ps, INT_SIZE);
+  unsigned char *hashed_master_secret = malloc(16);
+  unsigned char *master_secret_array = malloc(16);
 
-  //printf("Memcpy successful: %s\n", hex_to_str(master_secret_array, 4*INT_SIZE));
   SHA256_CTX ctx;
   sha256_init(&ctx);
-  /*sha256_update(&ctx, &ps, INT_SIZE);
   sha256_update(&ctx, &ps, INT_SIZE);
   sha256_update(&ctx, &client_random, INT_SIZE);
-  sha256_update(&ctx, &server_random, INT_SIZE);*/
-	sha256_update(&ctx, master_secret_array, INT_SIZE * 4);
+  sha256_update(&ctx, &server_random, INT_SIZE);
+  sha256_update(&ctx, &ps, INT_SIZE);
   sha256_final(&ctx, hashed_master_secret);
-	//printf("hex to str: %s", hex_to_str(hashed_master_secret, 16));
 
   master_secret_array = hex_to_str(hashed_master_secret, 16);
-  //printf("Hex to str successful: %s\n", master_secret_array);
   mpz_set_str(master_secret, master_secret_array, 16);
 	free(hashed_master_secret); free(master_secret_array);
 }
@@ -460,23 +452,24 @@ receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 static void
 perform_rsa(mpz_t result, mpz_t message, mpz_t e, mpz_t n)
 {
-    mpz_t two; mpz_t one; mpz_t zero; mpz_t comp;
-    mpz_init(zero); mpz_init(one); mpz_init(two); mpz_init(comp);
+    mpz_t two; mpz_t one; mpz_t zero; mpz_t comp; mpz_t e2; mpz_t n2;
+    mpz_init(zero); mpz_init(one); mpz_init(two); mpz_init(comp); mpz_init(e2); mpz_init(n2);
+		mpz_set(e2, e); mpz_set(n2, n);
     mpz_set_str(two, "2", 10); mpz_set_str(one, "1", 10);
     mpz_add(result, result, one);
 
-    while (mpz_cmp(zero, e) < 0) {
-        mpz_mod(comp, e, two);
+    while (mpz_cmp(zero, e2) < 0) {
+        mpz_mod(comp, e2, two);
         if (mpz_cmp(comp, zero) > 0) {
             mpz_mul(result, result, message);
-            mpz_mod(result, result, n);
-            mpz_sub(e, e, one);
+            mpz_mod(result, result, n2);
+            mpz_sub(e2, e2, one);
         }
         mpz_mul(message, message, message);
-        mpz_mod(message, message, n);
-        mpz_div(e, e, two);
+        mpz_mod(message, message, n2);
+        mpz_div(e2, e2, two);
     }
-    mpz_clear(two); mpz_clear(one); mpz_clear(zero); mpz_clear(comp);
+    mpz_clear(two); mpz_clear(one); mpz_clear(zero); mpz_clear(comp); mpz_clear(e2); mpz_clear(n2);
 }
 
 
