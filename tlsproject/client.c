@@ -20,6 +20,7 @@ static void usage();
 static void kill_handler(int signum);
 static int random_int();
 static void cleanup();
+static void mpz_to_char(char *dest, mpz_t src, int len);
 
 int main(int argc, char **argv) {
   int err, option_index, c, clientlen, counter;
@@ -175,27 +176,29 @@ int main(int argc, char **argv) {
 
 
   // Compute the PreMaster Secret.
-	ps_msg  encrypted_master_secret;
+	ps_msg  *encrypted_master_secret = malloc(PS_MSG_SIZE);
   mpz_t pms; mpz_t pm_secret; mpz_t master_secret; mpz_t verify_secret;
   mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret);
 
-  int pmValue = random_int();
-  mpz_set_si(pms, pmValue);
+  int pm_value = random_int();
+  mpz_set_si(pms, pm_value);
   perform_rsa(pm_secret, pms, server_exp, server_mod);
 
-	ps_msg pms_msg;
-	pms_msg.type = PREMASTER_SECRET;
-	mpz_get_str(pms_msg.ps, 16, pm_secret);
+	ps_msg *pms_msg = malloc(PS_MSG_SIZE);;
+	pms_msg->type = PREMASTER_SECRET;
+	mpz_get_str(pms_msg->ps, 16, pm_secret);
+	int i;
+	for (i = 0; i < RSA_MAX_LEN; i++) { printf("%02x", pms_msg->ps[i]); }
+	printf("\n");
 
-  send_tls_message(sockfd, &pms_msg, PS_MSG_SIZE);
+  send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
 
-  // Recevie the Master Secret
-  receive_tls_message(sockfd, &encrypted_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
-	printf("FUCK IT ALL GOT THE VERIFY_MASTER_SECRET\n");
-  decrypt_master_secret(master_secret, &encrypted_master_secret, client_exp, client_mod);
+  // Receive the Master Secret
+  receive_tls_message(sockfd, encrypted_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
+  decrypt_master_secret(master_secret, encrypted_master_secret, client_exp, client_mod);
   compute_master_secret(pm_secret, client_random, server_random, verify_secret);
   if (verify_master_secret(master_secret, verify_secret)) {
-    printf("Error, master secret is not valid!");
+    printf("Error, master secret is not valid!\n");
     exit(ERR_FAILURE);
   }
 
@@ -217,7 +220,19 @@ int main(int argc, char **argv) {
 	//Free all malloc'd memory
 	free(client_hello); free(client_cert);
 	free(server_hello); free(server_cert_msg);
+	free(pms_msg); free(encrypted_master_secret);
   // SET AES KEYS
+	char key[16];
+	printf("master secret: ");
+	for (i = 0; i < 16; i++) { printf("%02x", key[i]&0xff); }
+	printf("\n");
+	mpz_to_char(key, master_secret, 16);
+	printf("master secret: %s\n", mpz_get_str(NULL, 16, master_secret));
+	printf("master secret: ");
+	for (i = 0; i < 16; i++) { printf("%02x", key[i]&0xff); }
+	printf("\n");
+	aes_setkey_enc(&enc_ctx, key, 128);
+	aes_setkey_enc(&dec_ctx, key, 128);
 
   fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
   /* Send and receive data. */
@@ -311,8 +326,9 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
 {
 	mpz_t encrypted;
 	mpz_init(encrypted);
+	int i;
 	mpz_set_str(encrypted, ms_ver->ps, 16);
-  perform_rsa(decrypted_ms, ms_ver, key_exp, key_mod);
+  perform_rsa(decrypted_ms, encrypted, key_exp, key_mod);
 }
 
 /*
@@ -329,22 +345,26 @@ compute_master_secret(int ps, int client_random, int server_random, mpz_t master
 {
   char *hashed_master_secret = malloc(INT_SIZE * 4);
   char *master_secret_array = malloc(INT_SIZE * 4);
-  memcpy(master_secret_array, ps, INT_SIZE);
-  memcpy(master_secret_array + INT_SIZE, client_random, INT_SIZE);
-  memcpy(master_secret_array + (2 * INT_SIZE), server_random, INT_SIZE);
-  memcpy(master_secret_array + (3 * INT_SIZE), ps, INT_SIZE);
+  memcpy(master_secret_array, &ps, INT_SIZE);
+  memcpy(master_secret_array + INT_SIZE, &client_random, INT_SIZE);
+  memcpy(master_secret_array + (2 * INT_SIZE), &server_random, INT_SIZE);
+  memcpy(master_secret_array + (3 * INT_SIZE), &ps, INT_SIZE);
 
-  printf("Memcpy successful!\n");
+  //printf("Memcpy successful: %s\n", hex_to_str(master_secret_array, 4*INT_SIZE));
   SHA256_CTX ctx;
   sha256_init(&ctx);
-  sha256_update(&ctx, master_secret_array, INT_SIZE * 4);
+  /*sha256_update(&ctx, &ps, INT_SIZE);
+  sha256_update(&ctx, &ps, INT_SIZE);
+  sha256_update(&ctx, &client_random, INT_SIZE);
+  sha256_update(&ctx, &server_random, INT_SIZE);*/
+	sha256_update(&ctx, master_secret_array, INT_SIZE * 4);
   sha256_final(&ctx, hashed_master_secret);
-  printf("SHA256 successful!\n");
+	//printf("hex to str: %s", hex_to_str(hashed_master_secret, 16));
 
-  master_secret_array = hex_to_str(hashed_master_secret, INT_SIZE * 4);
-  printf("Hex to str successful!\n");
-  mpz_set_str(master_secret, 16, master_secret_array);
-  printf("Master secret should be correct.\n");
+  master_secret_array = hex_to_str(hashed_master_secret, 16);
+  //printf("Hex to str successful: %s\n", master_secret_array);
+  mpz_set_str(master_secret, master_secret_array, 16);
+	free(hashed_master_secret); free(master_secret_array);
 }
 /*
  * \brief                 Verifies that the master secret is valid.
@@ -356,7 +376,9 @@ compute_master_secret(int ps, int client_random, int server_random, mpz_t master
 int
 verify_master_secret(mpz_t master_secret, mpz_t verify_secret)
 {
-   return mpz_cmp(master_secret, verify_secret) == 0;
+	printf("master_secret: %s\n", mpz_get_str(NULL, 16, master_secret));
+	printf("verify_secret: %s\n", mpz_get_str(NULL, 16, verify_secret));
+   return mpz_cmp(master_secret, verify_secret);
 }
 /*
  * \brief                  Sends a message to the connected server.
@@ -370,7 +392,6 @@ verify_master_secret(mpz_t master_secret, mpz_t verify_secret)
 int
 send_tls_message(int socketno, void *msg, int msg_len)
 {
-	printf("Message type: %d\n", ((hello_message *) msg)->type);
   int written = write(socketno, msg, msg_len);
   if (msg_len == written)
   	return 0;
@@ -391,9 +412,7 @@ int
 receive_tls_message(int socketno, void *msg, int msg_len, int msg_type)
 {
 	// read in msg
-	printf("READING\n");
 	int r = read(socketno, msg, msg_len);
-	printf("READ\n");
 	if (msg_type == CLIENT_HELLO | msg_type == SERVER_HELLO) {
 		if (((hello_message*)msg)->type != msg_type) {
 			printf("Error, wrong error type. Expecting %d, found %d\n", msg_type, ((hello_message*)msg)->type);
@@ -631,4 +650,19 @@ cleanup()
 {
   close(sockfd);
   exit(1);
+}
+
+/* Takes value of mpz_t and places it into the array of char given */
+static void
+mpz_to_char(char * dest, mpz_t src, int len)
+{
+	char *ascii = malloc(sizeof(char *)*len);
+	mpz_get_ascii(ascii, src);
+	printf("ascii: %s\n", ascii);
+	int i;
+	for (i = 0; i < len; i++) {
+		printf("hex: %02x\n", ascii[i]&&0xff);
+		dest[i] = 0xff & atoi(&ascii[i]);
+	}
+	free(ascii);
 }
