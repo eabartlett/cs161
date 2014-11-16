@@ -21,6 +21,7 @@ static void kill_handler(int signum);
 static int random_int();
 static void cleanup();
 static void mpz_to_char(char *dest, mpz_t src, int len);
+void decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t key_mod);
 
 int main(int argc, char **argv) {
   int err, option_index, c, clientlen, counter;
@@ -174,8 +175,8 @@ int main(int argc, char **argv) {
 
   // Compute the PreMaster Secret.
 	ps_msg  *encrypted_master_secret = malloc(PS_MSG_SIZE);
-  mpz_t pms; mpz_t pm_secret; mpz_t master_secret; mpz_t verify_secret;
-  mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret);
+  mpz_t pms; mpz_t pm_secret; mpz_t master_secret; mpz_t verify_secret_mpz;
+  mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret_mpz);
 
   int pm_value = random_int();
   mpz_set_ui(pms, pm_value);
@@ -188,10 +189,12 @@ int main(int argc, char **argv) {
   send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
 
   // Receive the Master Secret
+	char verify_secret[16];
   receive_tls_message(sockfd, encrypted_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
   decrypt_master_secret(master_secret, encrypted_master_secret, client_exp, client_mod);
   compute_master_secret(pm_value, client_random, server_random, verify_secret);
-  if (verify_master_secret(master_secret, verify_secret)) {
+	mpz_set_str(verify_secret_mpz, hex_to_str(verify_secret, 16), 16);
+  if (verify_master_secret(master_secret, verify_secret_mpz)) {
     printf("Error, master secret is not valid!\n");
     exit(ERR_FAILURE);
   }
@@ -215,18 +218,16 @@ int main(int argc, char **argv) {
 	free(client_hello); free(client_cert);
 	free(server_hello); free(server_cert_msg);
 	free(pms_msg); free(encrypted_master_secret);
-  mpz_clear(pms); mpz_clear(pm_secret); mpz_clear(verify_secret);
+  mpz_clear(pms); mpz_clear(pm_secret);
 	mpz_clear(server_exp); mpz_clear(server_mod); mpz_clear(server_cert);
 	mpz_clear(ca_exp); mpz_clear(ca_mod);
+	mpz_clear(verify_secret_mpz);
   // SET AES KEYS
-	char key[16];
-	mpz_to_char(key, master_secret, 16);
-	mpz_clear(master_secret);
-	if (aes_setkey_enc(&enc_ctx, key, 128)) {
+	if (aes_setkey_enc(&enc_ctx, verify_secret, 128)) {
     printf("Error: problem setting the encryption key\n");
     exit(ERR_FAILURE);
 	}
-	if (aes_setkey_dec(&dec_ctx, key, 128)) {
+	if (aes_setkey_dec(&dec_ctx, verify_secret, 128)) {
     printf("Error: problem setting the decryption key\n");
     exit(ERR_FAILURE);
 	}
@@ -343,22 +344,15 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
  *                         Write the end result here.
  */
 void
-compute_master_secret(int ps, int client_random, int server_random, mpz_t master_secret)
+compute_master_secret(int ps, int client_random, int server_random, unsigned char *master_secret)
 {
-  unsigned char *hashed_master_secret = malloc(16);
-  unsigned char *master_secret_array = malloc(16);
-
   SHA256_CTX ctx;
   sha256_init(&ctx);
   sha256_update(&ctx, &ps, INT_SIZE);
   sha256_update(&ctx, &client_random, INT_SIZE);
   sha256_update(&ctx, &server_random, INT_SIZE);
   sha256_update(&ctx, &ps, INT_SIZE);
-  sha256_final(&ctx, hashed_master_secret);
-
-  master_secret_array = hex_to_str(hashed_master_secret, 16);
-  mpz_set_str(master_secret, master_secret_array, 16);
-	free(hashed_master_secret); free(master_secret_array);
+  sha256_final(&ctx, master_secret);
 }
 /*
  * \brief                 Verifies that the master secret is valid.
