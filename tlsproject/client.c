@@ -639,7 +639,11 @@ cleanup()
   exit(1);
 }
 
-/* Takes value of mpz_t and places it into the array of char given */
+/* Takes value of mpz_t and places it into the array of char given 
+	 
+	 Sadly I found a way to do the project without using this function
+	 so it has to sit here, unused, it all of its glory.
+*/
 static void
 mpz_to_char(char *dest, mpz_t src, int len)
 {
