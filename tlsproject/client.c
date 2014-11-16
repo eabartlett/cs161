@@ -154,13 +154,12 @@ int main(int argc, char **argv) {
   cert_message *client_cert = malloc(CERT_MSG_SIZE);
 	client_cert->type = CLIENT_CERTIFICATE;
   fread(client_cert->cert, 1, RSA_MAX_LEN, c_file);
-	int i;
   send_tls_message(sockfd, client_cert, CERT_MSG_SIZE);
   cert_message *server_cert_msg = malloc(CERT_MSG_SIZE);
   receive_tls_message(sockfd, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
 
   // Find the public key from the certificate.
-	char *server_cert_char;
+	char *server_cert_char = malloc(RSA_MAX_LEN);
 	mpz_t server_exp; mpz_t server_mod; mpz_t ca_mod; mpz_t ca_exp; mpz_t server_cert;
 
 	mpz_init(server_exp); mpz_init(server_mod); mpz_init(server_cert);
@@ -171,10 +170,7 @@ int main(int argc, char **argv) {
 	mpz_get_ascii(server_cert_char, server_cert);
 	get_cert_exponent(server_exp, server_cert_char);
 	get_cert_modulus(server_mod, server_cert_char);
-
-	printf("Server Cert: %s\n", server_cert_char);
-	printf("Server Mod: %s\n", mpz_get_str(NULL, 16, server_mod));
-	printf("Server Exp: %s\n", mpz_get_str(NULL, 16, server_exp));
+	free(server_cert_char);
 
   // Compute the PreMaster Secret.
 	ps_msg  *encrypted_master_secret = malloc(PS_MSG_SIZE);
@@ -183,8 +179,6 @@ int main(int argc, char **argv) {
 
   int pm_value = random_int();
   mpz_set_ui(pms, pm_value);
-	printf("PM int: %d\n", pm_value);
-	printf("PM mpz: %d\n", mpz_get_ui(pms));
   perform_rsa(pm_secret, pms, server_exp, server_mod);
 
 	ps_msg *pms_msg = malloc(PS_MSG_SIZE);
@@ -221,11 +215,21 @@ int main(int argc, char **argv) {
 	free(client_hello); free(client_cert);
 	free(server_hello); free(server_cert_msg);
 	free(pms_msg); free(encrypted_master_secret);
+  mpz_clear(pms); mpz_clear(pm_secret); mpz_clear(verify_secret);
+	mpz_clear(server_exp); mpz_clear(server_mod); mpz_clear(server_cert);
+	mpz_clear(ca_exp); mpz_clear(ca_mod);
   // SET AES KEYS
 	char key[16];
-	strncpy(key, mpz_get_str(NULL, 16, master_secret), 16);
-	aes_setkey_enc(&enc_ctx, key, 128);
-	aes_setkey_enc(&dec_ctx, key, 128);
+	mpz_to_char(key, master_secret, 16);
+	mpz_clear(master_secret);
+	if (aes_setkey_enc(&enc_ctx, key, 128)) {
+    printf("Error: problem setting the encryption key\n");
+    exit(ERR_FAILURE);
+	}
+	if (aes_setkey_dec(&dec_ctx, key, 128)) {
+    printf("Error: problem setting the decryption key\n");
+    exit(ERR_FAILURE);
+	}
 
   fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
   /* Send and receive data. */
@@ -304,6 +308,7 @@ decrypt_cert(mpz_t decrypted_cert, cert_message *cert_msg, mpz_t key_exp, mpz_t 
   mpz_set_str(encrypted_s_cert, (cert_msg->cert)+2, 16);
 
 	perform_rsa(decrypted_cert, encrypted_s_cert, key_exp, key_mod);
+	mpz_clear(encrypted_s_cert);
 }
 
 /*
@@ -324,11 +329,8 @@ decrypt_master_secret(mpz_t decrypted_ms, ps_msg *ms_ver, mpz_t key_exp, mpz_t k
 	mpz_t encrypted;
 	mpz_init(encrypted);
 	mpz_set_str(encrypted, ms_ver->ps, 16);
-	printf("Exp: %s\n", mpz_get_str(NULL, 16, key_exp));
-	printf("Mod: %s\n", mpz_get_str(NULL, 16, key_mod));
-	printf("Encypted: %s\n", mpz_get_str(NULL, 16, encrypted));
   perform_rsa(decrypted_ms, encrypted, key_exp, key_mod);
-	printf("Decrypted: %s\n", mpz_get_str(NULL, 16, decrypted_ms));
+	mpz_clear(encrypted);
 }
 
 /*
@@ -368,9 +370,7 @@ compute_master_secret(int ps, int client_random, int server_random, mpz_t master
 int
 verify_master_secret(mpz_t master_secret, mpz_t verify_secret)
 {
-	printf("master_secret: %s\n", mpz_get_str(NULL, 16, master_secret));
-	printf("verify_secret: %s\n", mpz_get_str(NULL, 16, verify_secret));
-   return mpz_cmp(master_secret, verify_secret);
+	return mpz_cmp(master_secret, verify_secret);
 }
 /*
  * \brief                  Sends a message to the connected server.
@@ -647,15 +647,30 @@ cleanup()
 
 /* Takes value of mpz_t and places it into the array of char given */
 static void
-mpz_to_char(char * dest, mpz_t src, int len)
+mpz_to_char(char *dest, mpz_t src, int len)
 {
-	char *ascii = malloc(sizeof(char *)*len);
-	mpz_get_ascii(ascii, src);
-	printf("ascii: %s\n", ascii);
-	int i;
-	for (i = 0; i < len; i++) {
-		printf("hex: %02x\n", ascii[i]&&0xff);
-		dest[i] = 0xff & atoi(&ascii[i]);
+	int i, actual_len; mpz_t hldr; char tmp[3]; char *hex;
+
+	hex = mpz_get_str(NULL, 16, src);
+	actual_len = strlen(hex);
+	mpz_init(hldr);
+	tmp[2] = 0x00;
+	if ((len % 2 == 0) & !(actual_len % 2)) {
+		for (i = 0; i < actual_len; i+=2) {
+			strncpy(tmp, hex+i, 2);
+			mpz_set_str(hldr, tmp, 16);
+			dest[i/2] = 0xff & mpz_get_ui(hldr);
+		}
 	}
-	free(ascii);
+	if ((len % 2) & (actual_len % 2)) {
+		strncpy(tmp, hex, 1);
+		tmp[0] = 0x00;
+		mpz_set_str(hldr, tmp, 16);
+		dest[(i/2)+1] = 0xff & mpz_get_ui(hldr);
+		for (i = 1; i < actual_len; i+=2) {
+			strncpy(tmp, hex+i, 2);
+			mpz_set_str(hldr, tmp, 16);
+			dest[(i/2)+1] = 0xff & mpz_get_ui(hldr);
+		}
+	}
 }
