@@ -22,3 +22,15 @@ to communicate unless the channel is lightly encrypted, or not encrypted at all.
 man in the middle can easily view or decrypt the messages shared between the endhosts.
 In order to mitigate this attack, we can establish a "minimum cipher suite" so that the endhosts
 can confidently communicate without any worry of a man in the middle intercepting their conversation.
+
+4. One easy attack would be a man in the middle attack where the attacker alters the initial
+random numbers that the client and/or server send in the hello packets to be different so that
+when the master secert is computed it will be wrong and the two endhosts will not be able to
+establish a connection.
+
+Another attack would be if the attacker is able to get a fake certificate for the server. 
+The attacker would be a man in the middle and when the server sends it's certificate
+the attacker could place its fake in the message. Then the man in the middle would be able to
+get the premaster secret from the client and encrypt a separate one to send to the server.
+In this way it would be able to establish different symmetric keys with each of the endhosts
+and send whatever messages it wants either way.
