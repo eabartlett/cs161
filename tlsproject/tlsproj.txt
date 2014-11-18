@@ -1,0 +1,9 @@
+Project 1 - CS 161
+Alex McKinney: cs161-, 
+Erik Bartlett: cs161-en, 22935019
+
+------ Questions ------
+1.  An attacker could complete a denial of service attack by spoofing either the client 
+or server's IP address and sending packets with error types or non-existent 
+types as a type of RST injection. Because of the way we wrote our code either
+of these types will cause the code to terminate the connection.
