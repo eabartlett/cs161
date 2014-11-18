@@ -14,3 +14,11 @@ they could easily predict the output of random_int(). In other words, since NULL
 a non-random value, an adversary could easily replicate the random value that we are
 using in our implementation because the adversary could easily infer the seed that we
 are using.
+
+3. A downgrade attack is possible if a man in the middle is able to intercept a message from
+one endpoint to the other and then alter the cipher_suite field to be nothing, or as least secure
+as possible. This way, the man in the middle is making it seem that the other endpoint is unable
+to communicate unless the channel is lightly encrypted, or not encrypted at all. With this, the
+man in the middle can easily view or decrypt the messages shared between the endhosts.
+In order to mitigate this attack, we can establish a "minimum cipher suite" so that the endhosts
+can confidently communicate without any worry of a man in the middle intercepting their conversation.
