@@ -1,1 +1,16 @@
-2. The random_int() function takes in time(NULL) as the input to the srand() function, so if an attacker was using a computer with a similar internal clock as ours, then they could easily predict the output of random_int(). In other words, since NULL is a non-random value, an adversary could easily replicate the random value that we are using in our implementation because the adversary could easily infer the seed that we are using.
+Project 1 - CS 161
+Alex McKinney: cs161-,
+Erik Bartlett: cs161-en, 22935019
+
+------ Questions ------
+1.  An attacker could complete a denial of service attack by spoofing either the client
+or server's IP address and sending packets with error types or non-existent
+types as a type of RST injection. Because of the way we wrote our code either
+of these types will cause the code to terminate the connection.
+
+2. The random_int() function takes in time(NULL) as the input to the srand() function,
+so if an attacker was using a computer with a similar internal clock as ours, then
+they could easily predict the output of random_int(). In other words, since NULL is
+a non-random value, an adversary could easily replicate the random value that we are
+using in our implementation because the adversary could easily infer the seed that we
+are using.
