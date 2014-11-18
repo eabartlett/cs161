@@ -137,44 +137,44 @@ int main(int argc, char **argv) {
   // IMPLEMENT THE TLS HANDSHAKE
 
 	// Create, send, and receive the hello messages.
-	int client_random, server_random, sent;
-	client_random = random_int();
+  int client_random, server_random, sent;
+  client_random = random_int();
   hello_message *client_hello = malloc(HELLO_MSG_SIZE);
-	client_hello->type = CLIENT_HELLO;
-	client_hello->random = client_random;
-	client_hello->cipher_suite = TLS_RSA_WITH_AES_128_ECB_SHA256;
+  client_hello->type = CLIENT_HELLO;
+  client_hello->random = client_random;
+  client_hello->cipher_suite = TLS_RSA_WITH_AES_128_ECB_SHA256;
   sent = send_tls_message(sockfd, client_hello, HELLO_MSG_SIZE);
-	if (sent) {
-		exit(ERR_FAILURE);
-	}
+  if (sent) {
+	exit(ERR_FAILURE);
+  } 
   hello_message *server_hello = malloc(HELLO_MSG_SIZE);
   receive_tls_message(sockfd, server_hello, HELLO_MSG_SIZE, SERVER_HELLO);
-	server_random = server_hello->random;
+  server_random = server_hello->random;
 
   // Create, send, and receive the certificates.
   cert_message *client_cert = malloc(CERT_MSG_SIZE);
-	client_cert->type = CLIENT_CERTIFICATE;
+  client_cert->type = CLIENT_CERTIFICATE;
   fread(client_cert->cert, 1, RSA_MAX_LEN, c_file);
   send_tls_message(sockfd, client_cert, CERT_MSG_SIZE);
   cert_message *server_cert_msg = malloc(CERT_MSG_SIZE);
   receive_tls_message(sockfd, server_cert_msg, CERT_MSG_SIZE, SERVER_CERTIFICATE);
 
   // Find the public key from the certificate.
-	char *server_cert_char = malloc(RSA_MAX_LEN);
-	mpz_t server_exp; mpz_t server_mod; mpz_t ca_mod; mpz_t ca_exp; mpz_t server_cert;
+  char *server_cert_char = malloc(RSA_MAX_LEN);
+  mpz_t server_exp; mpz_t server_mod; mpz_t ca_mod; mpz_t ca_exp; mpz_t server_cert;
 
-	mpz_init(server_exp); mpz_init(server_mod); mpz_init(server_cert);
-	mpz_init(ca_exp); mpz_init(ca_mod);
+  mpz_init(server_exp); mpz_init(server_mod); mpz_init(server_cert);
+  mpz_init(ca_exp); mpz_init(ca_mod);
 	
-	mpz_set_str(ca_mod, CA_MODULUS+2, 16); mpz_set_str(ca_exp, CA_EXPONENT+2, 16);
-	decrypt_cert(server_cert ,server_cert_msg, ca_exp, ca_mod);
-	mpz_get_ascii(server_cert_char, server_cert);
-	get_cert_exponent(server_exp, server_cert_char);
-	get_cert_modulus(server_mod, server_cert_char);
-	free(server_cert_char);
+  mpz_set_str(ca_mod, CA_MODULUS+2, 16); mpz_set_str(ca_exp, CA_EXPONENT+2, 16);
+  decrypt_cert(server_cert ,server_cert_msg, ca_exp, ca_mod);
+  mpz_get_ascii(server_cert_char, server_cert);
+  get_cert_exponent(server_exp, server_cert_char);
+  get_cert_modulus(server_mod, server_cert_char);
+  free(server_cert_char);
 
   // Compute the PreMaster Secret.
-	ps_msg  *encrypted_master_secret = malloc(PS_MSG_SIZE);
+  ps_msg  *encrypted_master_secret = malloc(PS_MSG_SIZE);
   mpz_t pms; mpz_t pm_secret; mpz_t master_secret; mpz_t verify_secret_mpz;
   mpz_init(pms); mpz_init(pm_secret); mpz_init(master_secret); mpz_init(verify_secret_mpz);
 
@@ -182,18 +182,18 @@ int main(int argc, char **argv) {
   mpz_set_ui(pms, pm_value);
   perform_rsa(pm_secret, pms, server_exp, server_mod);
 
-	ps_msg *pms_msg = malloc(PS_MSG_SIZE);
-	pms_msg->type = PREMASTER_SECRET;
-	mpz_get_str(pms_msg->ps, 16, pm_secret);
+  ps_msg *pms_msg = malloc(PS_MSG_SIZE);
+  pms_msg->type = PREMASTER_SECRET;
+  mpz_get_str(pms_msg->ps, 16, pm_secret);
 
   send_tls_message(sockfd, pms_msg, PS_MSG_SIZE);
 
   // Receive the Master Secret
-	char verify_secret[16];
+  char verify_secret[16];
   receive_tls_message(sockfd, encrypted_master_secret, PS_MSG_SIZE, VERIFY_MASTER_SECRET);
   decrypt_master_secret(master_secret, encrypted_master_secret, client_exp, client_mod);
   compute_master_secret(pm_value, client_random, server_random, verify_secret);
-	mpz_set_str(verify_secret_mpz, hex_to_str(verify_secret, 16), 16);
+  mpz_set_str(verify_secret_mpz, hex_to_str(verify_secret, 16), 16);
   if (verify_master_secret(master_secret, verify_secret_mpz)) {
     printf("Error, master secret is not valid!\n");
     exit(ERR_FAILURE);
@@ -214,23 +214,24 @@ int main(int argc, char **argv) {
   aes_init(&dec_ctx);
 
   // YOUR CODE HERE
-	//Free all malloc'd memory
-	free(client_hello); free(client_cert);
-	free(server_hello); free(server_cert_msg);
-	free(pms_msg); free(encrypted_master_secret);
+  //Free all malloc'd memory
+  free(client_hello); free(client_cert);
+  free(server_hello); free(server_cert_msg);
+  free(pms_msg); free(encrypted_master_secret);
   mpz_clear(pms); mpz_clear(pm_secret);
-	mpz_clear(server_exp); mpz_clear(server_mod); mpz_clear(server_cert);
-	mpz_clear(ca_exp); mpz_clear(ca_mod);
-	mpz_clear(verify_secret_mpz);
+  mpz_clear(server_exp); mpz_clear(server_mod); mpz_clear(server_cert);
+  mpz_clear(ca_exp); mpz_clear(ca_mod);
+  mpz_clear(verify_secret_mpz);
   // SET AES KEYS
-	if (aes_setkey_enc(&enc_ctx, verify_secret, 128)) {
+  if (aes_setkey_enc(&enc_ctx, verify_secret, 128)) {
     printf("Error: problem setting the encryption key\n");
     exit(ERR_FAILURE);
-	}
-	if (aes_setkey_dec(&dec_ctx, verify_secret, 128)) {
+  }
+  if (aes_setkey_dec(&dec_ctx, verify_secret, 128)) {
     printf("Error: problem setting the decryption key\n");
     exit(ERR_FAILURE);
-	}
+  }
+  printf("Read to send messages.\n");
 
   fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
   /* Send and receive data. */
