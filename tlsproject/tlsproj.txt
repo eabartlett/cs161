@@ -1,5 +1,5 @@
 Project 1 - CS 161
-Alex McKinney: cs161-,
+Alex McKinney: cs161-fs, 23523445
 Erik Bartlett: cs161-en, 22935019
 
 ------ Questions ------
